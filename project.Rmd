@@ -1,0 +1,147 @@
+---
+title: "Practical Machine Learning Project"
+author: "juaparal"
+date: "18 de febrero de 2015"
+output: html_document
+---
+###Executive Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+###Getting Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+**Reference:**
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3SEjOsvEQ
+
+
+###Loading and cleaning datasets
+
+Once data has been downloaded, two datasets has been constructed defining how to handle NA values:
+
+```{r}
+# read the csv files
+train<-read.csv("pml-training.csv", na.strings = c("NA",""," "))
+test<-read.csv("pml-testing.csv", na.strings = c("NA",""," "))
+
+```
+
+Hence, we eliminate all columns of both, the **train** and **test** datasets, with NA and blank values. Furthermore, the first 7 columns is decided to be supressed as they don't bring any important information for the predictions.
+
+```{r}
+# Clean the dataset. Eliminate all NAs columns
+nacol.train<-which(colSums(is.na(train))>0)
+nacol.test<-which(colSums(is.na(test))>0)
+train<-train[,-c(nacol.train)]
+test<-test[,-c(nacol.test)]
+
+# Eliminate first 7 columns. They doesn't bring any important information
+train<-train[,-c(1:7)]
+test<-test[,-c(1:7)]
+````
+
+Thus, we keep 53 variables as possible predictors in both datasets.
+
+```{r}
+dim(train)
+dim(test)
+```
+
+###Fitting a machine learning algorithm
+
+For a **cross-validation** approach we will use the **train** set to fit a model. Then we will split it into **training/testing** sets to build a model in order to finally evaluate it on the **test** set. A seed has been also fixed for reproducibility.
+
+```{r, warning=FALSE, message=FALSE}
+library(randomForest)
+library(caret)
+
+set.seed(12345)
+
+# Divide the training data in training and testing for cross-validation
+inTrain<-createDataPartition(train$classe, p = 0.7, list=FALSE)
+training<-train[inTrain,]
+testing<-train[-inTrain,] 
+
+````
+
+To fit the model it is decided to use **Random Forests**, as they are one of the top performing algorithms. Nevertheless a model fitted with a **Recursive Partitioning** model ("rpart") has been also tested giving less accuracy, so it was discarded.
+
+Then as stated before, the **cross-validation** will be set up in the parameter: 
+Train control **trControl = trainControl(method = "cv", number = 5)** with method cv=cross-validation and with 5 k-folds. 
+ 
+Furthermore, the number of trees has been established at 500 (1000 has been also tested but the accuracy didn't improved so much, so discarded too).
+
+````{r, cache=TRUE}
+model<- train(classe ~ .,data=training, method="rf", ntree=500, trControl=trainControl(method="cv", number=5))
+model ##Cross-Validated (5 fold) 
+
+```
+As it can be seen the accuracy is high enough (mtry = 2) and the Resampling was **Cross-Validated** with 5 fold. 
+
+Next, we apply the machine learning model to the **testing** dataset, and get the predictions. Let see also its accuracy:
+
+```{r}
+pred<- predict(model, testing)
+
+# Check the accuracy of the model fit
+acc<-confusionMatrix(pred, testing$classe)
+acc  
+# The accuracy is high enough
+```
+As it can be seen the accuracy on the predictions is also high over the **testing**, that is the 30% of the data of the **train** set we used for validation purposes.
+
+Now, lets plot the final model to contrast **Errors and Number of Trees**:
+```{r, warning=FALSE, message=FALSE}
+plot(model$finalModel, uniform=TRUE, main="Error vs Number of Trees")
+
+````
+
+As it can be seen as the number of trees increases the error decreases.
+
+Now lets see the 20 first most important predictors in the model fit:
+```{r}
+plot(varImp(model), top=20)
+````
+
+Finally, we will calculate the **out of sample error**:
+```{r}
+ooserror <- sum(pred == testing$classe)/length(pred)
+ooserror #accuracy
+outOfSampleError <- (1 - ooserror)*100
+outOfSampleError #value
+```
+The Out of sample error estimation: `r round(outOfSampleError, 3)`%.
+
+Thus we validate our model to make the predictions on the **test** dataset for submission.
+
+
+###Prediction Assignment Submission
+The predictons for submission are:
+
+```{r}
+#To write the prediction files
+answers<-predict(model, test)
+answers
+
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(answers)
+````
